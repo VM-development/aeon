@@ -48,9 +48,9 @@ pub fn main() !void {
 }
 
 const std = @import("std");
-const cli = @import("cli.zig");
-const utils = @import("utils.zig");
-const config = @import("config.zig");
+const cli = @import("core/cli.zig");
+const utils = @import("utils/utils.zig");
+const config = @import("core/config.zig");
 const build_options = @import("build_options");
-const constants = @import("constants.zig");
-const logger = @import("logger.zig");
+const constants = @import("core/constants.zig");
+const logger = @import("core/logger.zig");
