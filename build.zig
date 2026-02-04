@@ -20,6 +20,13 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
+    const logly_dep = b.dependency("logly", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("logly", logly_dep.module("logly"));
+
+    // Default install to zig-out/bin
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

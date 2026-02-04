@@ -1,8 +1,13 @@
-const std = @import("std");
-
 pub const CliArgs = struct {
     version: bool = false,
     help: bool = false,
+    config_path: ?[]const u8 = null,
+
+    pub fn deinit(self: *CliArgs, allocator: std.mem.Allocator) void {
+        if (self.config_path) |path| {
+            allocator.free(path);
+        }
+    }
 };
 
 pub fn parseArgs(allocator: std.mem.Allocator) !CliArgs {
@@ -17,16 +22,15 @@ pub fn parseArgs(allocator: std.mem.Allocator) !CliArgs {
             cli_args.version = true;
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             cli_args.help = true;
+        } else if (std.mem.startsWith(u8, arg, "--config=")) {
+            const path = arg[9..];
+            cli_args.config_path = try allocator.dupe(u8, path);
+        } else {
+            return error.InvalidArgument;
         }
     }
 
     return cli_args;
 }
 
-pub const HELP_MESSAGE =
-    \\Usage: aeon [OPTIONS]
-    \\
-    \\Options:
-    \\  -v, --version  Print version
-    \\  -h, --help     Print this help message
-;
+const std = @import("std");
