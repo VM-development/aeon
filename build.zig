@@ -1,14 +1,19 @@
 const std = @import("std");
+const appVersion = @import("build.zig.zon").version;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", appVersion);
+
     const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/aeon.zig"),
         .target = target,
         .optimize = optimize,
     });
+    exe_mod.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
         .name = "aeon",
@@ -30,7 +35,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    
     const exe_unit_tests = b.addTest(.{
         .root_module = exe_mod,
     });
