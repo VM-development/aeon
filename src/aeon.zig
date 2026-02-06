@@ -44,12 +44,53 @@ pub fn main() !void {
     const _logger = logger.get();
     try _logger.info("Logly installed successfully!", @src());
 
+    // code for openai client example
+    const api_key = env.getRequired(allocator, "OPENAI_API_KEY") catch |err| {
+        try utils.stderr_print("Error: OPENAI_API_KEY environment variable not set: {}\n", .{err});
+        return;
+    };
+    defer allocator.free(api_key);
+
+    var _openai = try openai.OpenAIClient.init(allocator, api_key);
+    defer _openai.deinit();
+    var client = _openai.asLlmClient();
+
+    try client.streamCompletion(
+        .{
+            .model = "gpt-3.5-turbo",
+            .messages = &.{.{ .role = .user, .content = "Count to 3!" }},
+            .stream = true,
+        },
+        streamCallback,
+    );
+
     try utils.stdout_print("Log file path: {s}\n", .{_config.log_file_path orelse "not set"});
 }
 
+fn streamCallback(event: llm.StreamEvent) anyerror!void {
+    switch (event) {
+        .text_delta => |content| {
+            try utils.stdout_print("Received content chunk: {s}\n", .{content});
+        },
+        .tool_call => |tc| {
+            try utils.stdout_print("Received tool call: {s}\n", .{tc.name});
+        },
+        .tool_call_delta => {},
+        .done => {
+            try utils.stdout_print("Stream finished\n", .{});
+        },
+        .@"error" => |err| {
+            try utils.stderr_print("Stream error: {s}\n", .{err});
+        },
+    }
+}
+
+const openai = @import("agent/openai.zig");
+const llm = @import("agent/llm_client.zig");
 const std = @import("std");
 const cli = @import("core/cli.zig");
 const utils = @import("utils/utils.zig");
+const env = @import("utils/env.zig");
 const config = @import("core/config.zig");
 const build_options = @import("build_options");
 const constants = @import("core/constants.zig");

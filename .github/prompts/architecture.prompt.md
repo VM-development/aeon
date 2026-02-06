@@ -122,18 +122,18 @@ pub fn executeAgent(runtime, message) !Response { ... }
 - [x] CLI argument parsing
 - [x] JSON config loading
 - [x] Logging system
-- [ ] SQLite integration
-- [ ] Session storage (file-based initially)
 
 ### **Phase 2: Agent Core**
-- [ ] HTTP client (for LLM APIs)
-- [ ] LLM client (Anthropic/OpenAI)
+- [x] HTTP client (for LLM APIs)
+- [x] LLM client types and interface
+- [x] OpenAI client implementation
 - [ ] Message processing pipeline
 - [ ] Basic streaming support
 - [ ] Tool registry
 - [ ] Tool execution (file read/write, exec)
 
 ### **Phase 3: Server**
+- [ ] Session storage (file-based, SQLite, ability to add different storages)
 - [ ] WebSocket server
 - [ ] JSON-RPC protocol handler
 - [ ] Client connection management
@@ -151,6 +151,10 @@ pub fn executeAgent(runtime, message) !Response { ... }
 - [ ] Performance optimization
 - [ ] Documentation
 - [ ] Docker image for deployment
+
+
+### **Features**
+- [ ] Anthropic client implementation
 
 ---
 
