@@ -3,16 +3,16 @@ const provider = @import("provider.zig");
 const utils = @import("../utils/utils.zig");
 
 // ─────────────────────────────────────────────────────────────
-// CLI Dialog Provider — interactive terminal chat
+// CLI Messenger Provider — interactive terminal chat
 // ─────────────────────────────────────────────────────────────
 
-pub const CliDialog = struct {
+pub const CliMessenger = struct {
     allocator: std.mem.Allocator,
     running: bool,
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator) CliDialog {
+    pub fn init(allocator: std.mem.Allocator) CliMessenger {
         return .{
             .allocator = allocator,
             .running = false,
@@ -23,9 +23,9 @@ pub const CliDialog = struct {
         _ = self;
     }
 
-    /// Returns a DialogProvider interface backed by this CliDialog
-    pub fn asDialogProvider(self: *Self) provider.DialogProvider {
-        const vtable: *const provider.DialogProvider.VTable = &.{
+    /// Returns a MessengerProvider interface backed by this CliMessenger
+    pub fn asMessengerProvider(self: *Self) provider.MessengerProvider {
+        const vtable: *const provider.MessengerProvider.VTable = &.{
             .start = startVirtual,
             .send = sendVirtual,
             .deinit = deinitVirtual,
@@ -91,7 +91,7 @@ pub const CliDialog = struct {
             try utils.stdout_print("\nassistant> ", .{});
 
             const response = handler(.{
-                .dialog = "cli",
+                .messenger = "cli",
                 .from = "local",
                 .text = trimmed,
                 .timestamp = std.time.timestamp(),
@@ -110,7 +110,7 @@ pub const CliDialog = struct {
         }
     }
 
-    /// Handle slash commands. Returns false if the dialog should stop.
+    /// Handle slash commands. Returns false if the messenger should stop.
     fn handleCommand(self: *Self, command: []const u8) !bool {
         if (std.mem.eql(u8, command, "/quit") or std.mem.eql(u8, command, "/exit")) {
             try utils.stdout_print("Goodbye!\n", .{});

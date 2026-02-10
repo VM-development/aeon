@@ -1,13 +1,18 @@
-const SYSTEM_PROMPT =
-    \\You are Aeon, a helpful AI assistant. You can help users with various tasks.
+const SYSTEM_PROMPT_BASE =
+    \\You are Aeon, a helpful AI assistant running on the user's device.
     \\You have access to tools for reading files, writing files, and executing shell commands.
-    \\When a user asks you to perform an action that requires these tools, use them.
+    \\When a user asks you to perform an action that requires these tools, USE THEM.
+    \\Don't just describe what you would do — actually do it using the available tools.
     \\Be concise and helpful in your responses.
+    \\
+    \\IMPORTANT: When asked to run commands, check files, or perform system operations,
+    \\you MUST use the exec, file_read, or file_write tools. Don't say "I would run..."
+    \\— actually run the command and report the results.
 ;
 
 /// Global runtime pointer for the message handler callback
 var g_runtime: ?*runtime.AgentRuntime = null;
-var g_dialog_mode: config.Config.DialogMode = .cli;
+var g_messenger: config.Config.Messenger = .cli;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -67,12 +72,27 @@ pub fn main() !void {
     defer _openai.deinit();
     var client = _openai.asLlmClient();
 
+    // Load skills from the skills directory
+    const skills_content = skills.loadSkills(allocator, skills.DEFAULT_SKILLS_PATH) catch {
+        try _logger.err("Failed to load skills", @src());
+        return;
+    };
+    defer if (skills_content.len > 0) allocator.free(skills_content);
+
+    // Combine base prompt with skills
+    const full_system_prompt = if (skills_content.len > 0)
+        std.fmt.allocPrint(allocator, "{s}{s}", .{ SYSTEM_PROMPT_BASE, skills_content }) catch SYSTEM_PROMPT_BASE
+    else
+        SYSTEM_PROMPT_BASE;
+    defer if (skills_content.len > 0 and full_system_prompt.ptr != SYSTEM_PROMPT_BASE.ptr)
+        allocator.free(full_system_prompt);
+
     // Initialize agent runtime
     var agent = try runtime.AgentRuntime.init(
         allocator,
         &client,
         "gpt-4o-mini",
-        SYSTEM_PROMPT,
+        full_system_prompt,
     );
     defer agent.deinit();
 
@@ -82,9 +102,9 @@ pub fn main() !void {
         g_runtime = null;
     }
 
-    // Start the appropriate dialog based on config
-    g_dialog_mode = _config.dialog_mode;
-    switch (_config.dialog_mode) {
+    // Start the appropriate messenger based on config
+    g_messenger = _config.messenger;
+    switch (_config.messenger) {
         .telegram => {
             // Get Telegram bot token from environment
             const telegram_token = env.getRequired(allocator, "TELEGRAM_BOT_TOKEN") catch |err| {
@@ -93,31 +113,31 @@ pub fn main() !void {
             };
             defer allocator.free(telegram_token);
 
-            try _logger.info("Starting Telegram dialog", @src());
+            try _logger.info("Starting Telegram messenger", @src());
 
-            var telegram_dialog = telegram_provider.TelegramDialog.init(allocator, telegram_token) catch |err| {
+            var telegram_messenger = telegram_provider.TelegramMessenger.init(allocator, telegram_token) catch |err| {
                 try utils.stderr_print("Error initializing Telegram: {}\n", .{err});
                 return;
             };
-            defer telegram_dialog.deinit();
-            var dialog = telegram_dialog.asDialogProvider();
+            defer telegram_messenger.deinit();
+            var messenger = telegram_messenger.asMessengerProvider();
 
-            try dialog.start(handleMessage);
+            try messenger.start(handleMessage);
         },
         .cli => {
-            // Initialize CLI dialog and start interactive loop
-            var cli_dialog = cli_provider.CliDialog.init(allocator);
-            defer cli_dialog.deinit();
-            var dialog = cli_dialog.asDialogProvider();
+            // Initialize CLI messenger and start interactive loop
+            var cli_messenger = cli_provider.CliMessenger.init(allocator);
+            defer cli_messenger.deinit();
+            var messenger = cli_messenger.asMessengerProvider();
 
-            try _logger.info("Starting CLI dialog", @src());
-            try dialog.start(handleMessage);
+            try _logger.info("Starting CLI messenger", @src());
+            try messenger.start(handleMessage);
         },
     }
 }
 
-/// Handle an inbound message from any dialog provider.
-/// This is called by the dialog provider with each user message.
+/// Handle an inbound message from any messenger provider.
+/// This is called by the messenger provider with each user message.
 fn handleMessage(msg: provider.InboundMessage) anyerror![]const u8 {
     const agent = g_runtime orelse return error.RuntimeNotInitialized;
 
@@ -128,7 +148,7 @@ fn handleMessage(msg: provider.InboundMessage) anyerror![]const u8 {
     }
 
     // Process via streaming — text deltas printed in real-time (CLI only)
-    const callback: *const fn ([]const u8) anyerror!void = switch (g_dialog_mode) {
+    const callback: *const fn ([]const u8) anyerror!void = switch (g_messenger) {
         .cli => streamTextDelta,
         .telegram => noOpDelta,
     };
@@ -155,6 +175,7 @@ const config = @import("core/config.zig");
 const build_options = @import("build_options");
 const constants = @import("core/constants.zig");
 const logger = @import("core/logger.zig");
-const provider = @import("dialogs/provider.zig");
-const cli_provider = @import("dialogs/cli.zig");
-const telegram_provider = @import("dialogs/telegram.zig");
+const provider = @import("messengers/provider.zig");
+const cli_provider = @import("messengers/cli.zig");
+const telegram_provider = @import("messengers/telegram.zig");
+const skills = @import("agent/skills.zig");

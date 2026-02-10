@@ -1,8 +1,8 @@
 pub const Config = struct {
     log_file_path: ?[]const u8 = null,
-    dialog_mode: DialogMode = .cli,
+    messenger: Messenger = .cli,
 
-    pub const DialogMode = enum {
+    pub const Messenger = enum {
         cli,
         telegram,
     };
@@ -49,13 +49,13 @@ pub const Config = struct {
             }
         }
 
-        // Parse dialog mode: "cli" or "telegram"
-        if (value.object.get("dialog_mode")) |mode| {
+        // Parse messenger mode: "cli" or "telegram"
+        if (value.object.get("messenger")) |mode| {
             const mode_str = mode.string;
             if (std.mem.eql(u8, mode_str, "telegram")) {
-                config.dialog_mode = .telegram;
+                config.messenger = .telegram;
             } else {
-                config.dialog_mode = .cli;
+                config.messenger = .cli;
             }
         }
 

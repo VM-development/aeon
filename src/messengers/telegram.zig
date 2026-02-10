@@ -4,10 +4,10 @@ const provider = @import("provider.zig");
 const logger = @import("../core/logger.zig");
 
 // ─────────────────────────────────────────────────────────────
-// Telegram Dialog Provider — Telegram Bot API integration
+// Telegram Messenger Provider — Telegram Bot API integration
 // ─────────────────────────────────────────────────────────────
 
-pub const TelegramDialog = struct {
+pub const TelegramMessenger = struct {
     allocator: std.mem.Allocator,
     bot_token: []const u8,
     client: telegram.TelegramClient,
@@ -16,9 +16,9 @@ pub const TelegramDialog = struct {
 
     const Self = @This();
 
-    /// Initialize the Telegram dialog provider
+    /// Initialize the Telegram messenger provider
     /// bot_token is NOT owned by this struct — caller must keep it alive
-    pub fn init(allocator: std.mem.Allocator, bot_token: []const u8) !TelegramDialog {
+    pub fn init(allocator: std.mem.Allocator, bot_token: []const u8) !TelegramMessenger {
         var client = try telegram.TelegramClient.init(allocator, bot_token);
         errdefer client.deinit();
 
@@ -35,9 +35,9 @@ pub const TelegramDialog = struct {
         self.client.deinit();
     }
 
-    /// Returns a DialogProvider interface backed by this TelegramDialog
-    pub fn asDialogProvider(self: *Self) provider.DialogProvider {
-        const vtable: *const provider.DialogProvider.VTable = &.{
+    /// Returns a MessengerProvider interface backed by this TelegramMessenger
+    pub fn asMessengerProvider(self: *Self) provider.MessengerProvider {
+        const vtable: *const provider.MessengerProvider.VTable = &.{
             .start = startVirtual,
             .send = sendVirtual,
             .deinit = deinitVirtual,
@@ -123,7 +123,7 @@ pub const TelegramDialog = struct {
 
                         // Call the message handler
                         const response = handler(.{
-                            .dialog = "telegram",
+                            .messenger = "telegram",
                             .from = from_id_str,
                             .text = text,
                             .timestamp = message.date,
