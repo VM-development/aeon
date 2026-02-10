@@ -67,10 +67,18 @@ pub fn main() !void {
     };
     defer allocator.free(api_key);
 
-    // Initialize LLM client
-    var _openai = try openai.OpenAIClient.init(allocator, api_key);
-    defer _openai.deinit();
-    var client = _openai.asLlmClient();
+    // Initialize LLM client based on provider config
+    var llm_client = switch (_config.llm_provider) {
+        .openai => blk: {
+            var _openai = try openai.OpenAIClient.init(allocator, api_key);
+            break :blk _openai.asLlmClient();
+        },
+        .anthropic => {
+            try utils.stderr_print("Error: Anthropic provider is not yet implemented\n", .{});
+            return;
+        },
+    };
+    defer llm_client.deinit();
 
     // Load skills from the skills directory
     const skills_content = skills.loadSkills(allocator, skills.DEFAULT_SKILLS_PATH) catch {
@@ -90,8 +98,8 @@ pub fn main() !void {
     // Initialize agent runtime
     var agent = try runtime.AgentRuntime.init(
         allocator,
-        &client,
-        "gpt-4o-mini",
+        &llm_client,
+        _config.llm_model,
         full_system_prompt,
     );
     defer agent.deinit();

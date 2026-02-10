@@ -1,4 +1,6 @@
 {
     "log_file_path": "~/.aeon/logs/aeon.log",
-    "messenger": "cli"
+    "messenger": "cli",
+    "llm_provider": "openai",
+    "llm_model": "gpt-4o-mini"
 }

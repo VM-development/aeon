@@ -1,15 +1,26 @@
 pub const Config = struct {
     log_file_path: ?[]const u8 = null,
     messenger: Messenger = .cli,
+    llm_provider: LlmProvider = .openai,
+    llm_model: []const u8 = "gpt-4o-mini",
 
     pub const Messenger = enum {
         cli,
         telegram,
     };
 
+    pub const LlmProvider = enum {
+        openai,
+        anthropic,
+    };
+
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
         if (self.log_file_path) |path| {
             allocator.free(path);
+        }
+        // Free model if it was allocated (not the default)
+        if (self.llm_model.ptr != @as([]const u8, "gpt-4o-mini").ptr) {
+            allocator.free(self.llm_model);
         }
     }
 
@@ -56,6 +67,23 @@ pub const Config = struct {
                 config.messenger = .telegram;
             } else {
                 config.messenger = .cli;
+            }
+        }
+
+        // Parse LLM provider: "openai" or "anthropic"
+        if (value.object.get("llm_provider")) |provider| {
+            const provider_str = provider.string;
+            if (std.mem.eql(u8, provider_str, "anthropic")) {
+                config.llm_provider = .anthropic;
+            } else if (std.mem.eql(u8, provider_str, "openai")) {
+                config.llm_provider = .openai;
+            }
+        }
+
+        // Parse LLM model name
+        if (value.object.get("llm_model")) |model| {
+            if (model.string.len > 0) {
+                config.llm_model = try allocator.dupe(u8, model.string);
             }
         }
 

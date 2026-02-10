@@ -1,4 +1,6 @@
 {
     "log_file_path": "logs/aeon.log",
-    "messenger": "telegram"
+    "messenger": "telegram",
+    "llm_provider": "openai",
+    "llm_model": "gpt-4o-mini"
 }
