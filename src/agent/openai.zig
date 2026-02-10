@@ -229,13 +229,14 @@ pub const OpenAIClient = struct {
         if (request.tools) |tools| {
             for (tools) |tool| {
                 // Build properties JSON object
+                // NOTE: Do NOT defer deinit here — the ObjectMap data is referenced
+                // by tools_list entries and must survive until after serialization.
                 var props_map = std.json.ObjectMap.init(self.allocator);
-                defer props_map.deinit();
 
                 var iter = tool.parameters.iterator();
                 while (iter.next()) |entry| {
                     var prop_obj = std.json.ObjectMap.init(self.allocator);
-                    defer prop_obj.deinit();
+                    // Do NOT defer — data is moved into props_map
 
                     try prop_obj.put("type", .{ .string = entry.value_ptr.type });
                     if (entry.value_ptr.description) |desc| {
@@ -257,7 +258,21 @@ pub const OpenAIClient = struct {
             }
             openai_tools = try tools_list.toOwnedSlice(self.allocator);
         }
-        defer if (openai_tools) |t| self.allocator.free(t);
+        defer {
+            // Clean up tool JSON objects after serialization
+            if (openai_tools) |ot| {
+                for (ot) |*t| {
+                    var props = t.function.parameters.properties.object;
+                    var pit = props.iterator();
+                    while (pit.next()) |entry| {
+                        var obj = entry.value_ptr.object;
+                        obj.deinit();
+                    }
+                    props.deinit();
+                }
+                self.allocator.free(ot);
+            }
+        }
 
         const openai_request = OpenAIRequest{
             .model = request.model,

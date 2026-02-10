@@ -1,3 +1,14 @@
+const SYSTEM_PROMPT =
+    \\You are Aeon, a helpful AI assistant. You can help users with various tasks.
+    \\You have access to tools for reading files, writing files, and executing shell commands.
+    \\When a user asks you to perform an action that requires these tools, use them.
+    \\Be concise and helpful in your responses.
+;
+
+/// Global runtime pointer for the message handler callback
+var g_runtime: ?*runtime.AgentRuntime = null;
+var g_clear_requested: bool = false;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -42,51 +53,68 @@ pub fn main() !void {
     defer logger.deinit();
 
     const _logger = logger.get();
-    try _logger.info("Logly installed successfully!", @src());
+    try _logger.info("Aeon starting up", @src());
 
-    // code for openai client example
+    // Get API key from environment
     const api_key = env.getRequired(allocator, "OPENAI_API_KEY") catch |err| {
         try utils.stderr_print("Error: OPENAI_API_KEY environment variable not set: {}\n", .{err});
         return;
     };
     defer allocator.free(api_key);
 
+    // Initialize LLM client
     var _openai = try openai.OpenAIClient.init(allocator, api_key);
     defer _openai.deinit();
     var client = _openai.asLlmClient();
 
-    try client.streamCompletion(
-        .{
-            .model = "gpt-3.5-turbo",
-            .messages = &.{.{ .role = .user, .content = "Count to 3!" }},
-            .stream = true,
-        },
-        streamCallback,
+    // Initialize agent runtime
+    var agent = try runtime.AgentRuntime.init(
+        allocator,
+        &client,
+        "gpt-4o-mini",
+        SYSTEM_PROMPT,
     );
+    defer agent.deinit();
 
-    try utils.stdout_print("Log file path: {s}\n", .{_config.log_file_path orelse "not set"});
+    // Set global for callback
+    g_runtime = &agent;
+    defer {
+        g_runtime = null;
+    }
+
+    // Initialize CLI dialog and start interactive loop
+    var cli_dialog = cli_provider.CliDialog.init(allocator);
+    defer cli_dialog.deinit();
+    var dialog = cli_dialog.asDialogProvider();
+
+    try _logger.info("Starting CLI dialog", @src());
+    try dialog.start(handleMessage);
 }
 
-fn streamCallback(event: llm.StreamEvent) anyerror!void {
-    switch (event) {
-        .text_delta => |content| {
-            try utils.stdout_print("Received content chunk: {s}\n", .{content});
-        },
-        .tool_call => |tc| {
-            try utils.stdout_print("Received tool call: {s}\n", .{tc.name});
-        },
-        .tool_call_delta => {},
-        .done => {
-            try utils.stdout_print("Stream finished\n", .{});
-        },
-        .@"error" => |err| {
-            try utils.stderr_print("Stream error: {s}\n", .{err});
-        },
+/// Handle an inbound message from any dialog provider.
+/// This is called by the dialog provider with each user message.
+fn handleMessage(msg: provider.InboundMessage) anyerror![]const u8 {
+    const agent = g_runtime orelse return error.RuntimeNotInitialized;
+
+    // Handle /clear command
+    if (std.mem.eql(u8, msg.text, "/clear")) {
+        agent.clearHistory();
+        return try agent.allocator.dupe(u8, "");
     }
+
+    // Process via streaming — text deltas printed in real-time
+    const response = try agent.processMessageStreaming(msg.text, streamTextDelta);
+    return response;
+}
+
+/// Callback for streaming text deltas — prints to stdout in real-time
+fn streamTextDelta(text: []const u8) anyerror!void {
+    try utils.stdout_print("{s}", .{text});
 }
 
 const openai = @import("agent/openai.zig");
 const llm = @import("agent/llm_client.zig");
+const runtime = @import("agent/runtime.zig");
 const std = @import("std");
 const cli = @import("core/cli.zig");
 const utils = @import("utils/utils.zig");
@@ -95,3 +123,5 @@ const config = @import("core/config.zig");
 const build_options = @import("build_options");
 const constants = @import("core/constants.zig");
 const logger = @import("core/logger.zig");
+const provider = @import("dialogs/provider.zig");
+const cli_provider = @import("dialogs/cli.zig");

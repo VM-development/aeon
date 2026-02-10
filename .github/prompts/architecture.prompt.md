@@ -127,10 +127,14 @@ pub fn executeAgent(runtime, message) !Response { ... }
 - [x] HTTP client (for LLM APIs)
 - [x] LLM client types and interface
 - [x] OpenAI client implementation
-- [ ] Message processing pipeline
-- [ ] Basic streaming support
-- [ ] Tool registry
-- [ ] Tool execution (file read/write, exec)
+- [x] Message processing pipeline
+- [x] Basic streaming support
+- [x] Tool registry
+- [x] Tool execution (file read/write, exec)
+
+### **Phase 2.5: Dialogs**
+- [x] Dialog provider interface
+- [x] CLI dialog provider
 
 ### **Phase 3: Server**
 - [ ] Session storage (file-based, SQLite, ability to add different storages)
