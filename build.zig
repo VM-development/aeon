@@ -26,6 +26,9 @@ pub fn build(b: *std.Build) void {
     });
     exe.root_module.addImport("logly", logly_dep.module("logly"));
 
+    // Link libc for HTTP client
+    exe.linkLibC();
+
     // Default install to zig-out/bin
     b.installArtifact(exe);
 

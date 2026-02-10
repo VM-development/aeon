@@ -1,5 +1,11 @@
 pub const Config = struct {
     log_file_path: ?[]const u8 = null,
+    dialog_mode: DialogMode = .cli,
+
+    pub const DialogMode = enum {
+        cli,
+        telegram,
+    };
 
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
         if (self.log_file_path) |path| {
@@ -40,6 +46,16 @@ pub const Config = struct {
         if (value.object.get("log_file_path")) |log_path| {
             if (log_path.string.len > 0) {
                 config.log_file_path = try allocator.dupe(u8, log_path.string);
+            }
+        }
+
+        // Parse dialog mode: "cli" or "telegram"
+        if (value.object.get("dialog_mode")) |mode| {
+            const mode_str = mode.string;
+            if (std.mem.eql(u8, mode_str, "telegram")) {
+                config.dialog_mode = .telegram;
+            } else {
+                config.dialog_mode = .cli;
             }
         }
 

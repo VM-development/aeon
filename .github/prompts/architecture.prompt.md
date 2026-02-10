@@ -144,9 +144,9 @@ pub fn executeAgent(runtime, message) !Response { ... }
 - [ ] Event broadcasting
 
 ### **Phase 4: Telegram Integration**
-- [ ] Telegram Bot API client
+- [x] Telegram Bot API client
 - [ ] Webhook handling
-- [ ] Dialog provider implementation
+- [x] Dialog provider implementation
 - [ ] Media handling (images/audio)
 
 ### **Phase 5: Polish & Testing**

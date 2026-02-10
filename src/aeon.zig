@@ -7,7 +7,7 @@ const SYSTEM_PROMPT =
 
 /// Global runtime pointer for the message handler callback
 var g_runtime: ?*runtime.AgentRuntime = null;
-var g_clear_requested: bool = false;
+var g_dialog_mode: config.Config.DialogMode = .cli;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -82,13 +82,38 @@ pub fn main() !void {
         g_runtime = null;
     }
 
-    // Initialize CLI dialog and start interactive loop
-    var cli_dialog = cli_provider.CliDialog.init(allocator);
-    defer cli_dialog.deinit();
-    var dialog = cli_dialog.asDialogProvider();
+    // Start the appropriate dialog based on config
+    g_dialog_mode = _config.dialog_mode;
+    switch (_config.dialog_mode) {
+        .telegram => {
+            // Get Telegram bot token from environment
+            const telegram_token = env.getRequired(allocator, "TELEGRAM_BOT_TOKEN") catch |err| {
+                try utils.stderr_print("Error: TELEGRAM_BOT_TOKEN environment variable not set: {}\n", .{err});
+                return;
+            };
+            defer allocator.free(telegram_token);
 
-    try _logger.info("Starting CLI dialog", @src());
-    try dialog.start(handleMessage);
+            try _logger.info("Starting Telegram dialog", @src());
+
+            var telegram_dialog = telegram_provider.TelegramDialog.init(allocator, telegram_token) catch |err| {
+                try utils.stderr_print("Error initializing Telegram: {}\n", .{err});
+                return;
+            };
+            defer telegram_dialog.deinit();
+            var dialog = telegram_dialog.asDialogProvider();
+
+            try dialog.start(handleMessage);
+        },
+        .cli => {
+            // Initialize CLI dialog and start interactive loop
+            var cli_dialog = cli_provider.CliDialog.init(allocator);
+            defer cli_dialog.deinit();
+            var dialog = cli_dialog.asDialogProvider();
+
+            try _logger.info("Starting CLI dialog", @src());
+            try dialog.start(handleMessage);
+        },
+    }
 }
 
 /// Handle an inbound message from any dialog provider.
@@ -102,8 +127,12 @@ fn handleMessage(msg: provider.InboundMessage) anyerror![]const u8 {
         return try agent.allocator.dupe(u8, "");
     }
 
-    // Process via streaming — text deltas printed in real-time
-    const response = try agent.processMessageStreaming(msg.text, streamTextDelta);
+    // Process via streaming — text deltas printed in real-time (CLI only)
+    const callback: *const fn ([]const u8) anyerror!void = switch (g_dialog_mode) {
+        .cli => streamTextDelta,
+        .telegram => noOpDelta,
+    };
+    const response = try agent.processMessageStreaming(msg.text, callback);
     return response;
 }
 
@@ -111,6 +140,9 @@ fn handleMessage(msg: provider.InboundMessage) anyerror![]const u8 {
 fn streamTextDelta(text: []const u8) anyerror!void {
     try utils.stdout_print("{s}", .{text});
 }
+
+/// No-op callback for non-CLI modes (Telegram handles response separately)
+fn noOpDelta(_: []const u8) anyerror!void {}
 
 const openai = @import("agent/openai.zig");
 const llm = @import("agent/llm_client.zig");
@@ -125,3 +157,4 @@ const constants = @import("core/constants.zig");
 const logger = @import("core/logger.zig");
 const provider = @import("dialogs/provider.zig");
 const cli_provider = @import("dialogs/cli.zig");
+const telegram_provider = @import("dialogs/telegram.zig");
