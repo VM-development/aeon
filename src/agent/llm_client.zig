@@ -27,6 +27,7 @@ pub const Message = struct {
     content: []const u8,
     name: ?[]const u8 = null, // For tool messages
     tool_call_id: ?[]const u8 = null, // For tool response messages
+    tool_calls: ?[]const ToolCall = null, // For assistant messages with tool calls
 
     pub fn init(role: MessageRole, content: []const u8) Message {
         return .{

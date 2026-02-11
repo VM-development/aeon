@@ -112,6 +112,7 @@ pub const AgentRuntime = struct {
 
         var round: u32 = 0;
         while (round < self.max_tool_rounds) : (round += 1) {
+
             // Build messages array for LLM
             const messages = try self.buildMessages();
             defer self.allocator.free(messages);
@@ -135,15 +136,32 @@ pub const AgentRuntime = struct {
                 .stream = true,
             }, StreamCollector.callback);
 
-            // Store assistant response
+            // Get streamed content and tool calls
             const assistant_content = try stream_collector.getContent();
+            const pending_tools = stream_collector.getToolCalls();
+
+            // Convert pending tool calls to llm.ToolCall for storage
+            var tool_calls_for_msg: ?[]const llm.ToolCall = null;
+            if (pending_tools.len > 0) {
+                var tc_list: std.ArrayList(llm.ToolCall) = .{};
+                for (pending_tools) |ptc| {
+                    try tc_list.append(self.allocator, .{
+                        .id = try self.allocator.dupe(u8, ptc.id.items),
+                        .name = try self.allocator.dupe(u8, ptc.name.items),
+                        .arguments = try self.allocator.dupe(u8, ptc.arguments.items),
+                    });
+                }
+                tool_calls_for_msg = try tc_list.toOwnedSlice(self.allocator);
+            }
+
+            // Store assistant response (with tool_calls if any)
             try self.conversation.append(self.allocator, .{
                 .role = .assistant,
                 .content = assistant_content,
+                .tool_calls = tool_calls_for_msg,
             });
 
             // Handle tool calls if any
-            const pending_tools = stream_collector.getToolCalls();
             if (pending_tools.len > 0) {
                 try self.executeToolCallsFromStream(pending_tools);
                 continue;

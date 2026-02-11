@@ -8,7 +8,18 @@ const COMPLETIONS_ENDPOINT = "/chat/completions";
 // OpenAI API request structures
 const OpenAIMessage = struct {
     role: []const u8,
-    content: []const u8,
+    content: ?[]const u8, // nullable for assistant messages with only tool_calls
+    tool_calls: ?[]const OpenAIToolCall = null, // For assistant messages
+    tool_call_id: ?[]const u8 = null, // For tool response messages
+};
+
+const OpenAIToolCall = struct {
+    id: []const u8,
+    type: []const u8 = "function",
+    function: struct {
+        name: []const u8,
+        arguments: []const u8,
+    },
 };
 
 const OpenAIToolFunction = struct {
@@ -214,11 +225,40 @@ pub const OpenAIClient = struct {
         var messages: std.ArrayList(OpenAIMessage) = .{};
         defer messages.deinit(self.allocator);
 
+        // For tool_calls, we need to convert them to OpenAI format
+        var tool_calls_storage: std.ArrayList([]const OpenAIToolCall) = .{};
+        defer {
+            for (tool_calls_storage.items) |tc_slice| {
+                self.allocator.free(tc_slice);
+            }
+            tool_calls_storage.deinit(self.allocator);
+        }
+
         for (request.messages) |msg| {
-            try messages.append(self.allocator, .{
+            var openai_msg = OpenAIMessage{
                 .role = msg.role.toString(),
-                .content = msg.content,
-            });
+                .content = if (msg.content.len > 0) msg.content else null,
+                .tool_call_id = msg.tool_call_id,
+            };
+
+            // Convert tool_calls for assistant messages
+            if (msg.tool_calls) |tcs| {
+                var tc_list: std.ArrayList(OpenAIToolCall) = .{};
+                for (tcs) |tc| {
+                    try tc_list.append(self.allocator, .{
+                        .id = tc.id,
+                        .function = .{
+                            .name = tc.name,
+                            .arguments = tc.arguments,
+                        },
+                    });
+                }
+                const tc_slice = try tc_list.toOwnedSlice(self.allocator);
+                try tool_calls_storage.append(self.allocator, tc_slice);
+                openai_msg.tool_calls = tc_slice;
+            }
+
+            try messages.append(self.allocator, openai_msg);
         }
 
         // Convert tools to OpenAI format if present
@@ -377,5 +417,46 @@ fn handleSseLine(line: []const u8, ctx: *anyopaque) anyerror!void {
         }
     }
 
-    // TODO: Handle tool_calls in delta
+    // Handle tool_calls in delta
+    if (delta.object.get("tool_calls")) |tool_calls_value| {
+        if (tool_calls_value == .array) {
+            for (tool_calls_value.array.items) |tool_call_item| {
+                if (tool_call_item != .object) continue;
+
+                const tc_obj = tool_call_item.object;
+
+                // Extract id (only in first chunk)
+                const id: ?[]const u8 = if (tc_obj.get("id")) |id_val|
+                    if (id_val == .string) id_val.string else null
+                else
+                    null;
+
+                // Extract function name and arguments
+                var name: ?[]const u8 = null;
+                var arguments: ?[]const u8 = null;
+
+                if (tc_obj.get("function")) |func_val| {
+                    if (func_val == .object) {
+                        if (func_val.object.get("name")) |n|
+                            if (n == .string) {
+                                name = n.string;
+                            };
+                        if (func_val.object.get("arguments")) |a|
+                            if (a == .string) {
+                                arguments = a.string;
+                            };
+                    }
+                }
+
+                // Emit tool_call_delta event
+                try context.callback(.{
+                    .tool_call_delta = .{
+                        .id = id,
+                        .name = name,
+                        .arguments = arguments,
+                    },
+                });
+            }
+        }
+    }
 }
