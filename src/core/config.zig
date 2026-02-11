@@ -1,5 +1,6 @@
 pub const Config = struct {
     log_file_path: ?[]const u8 = null,
+    role_path: ?[]const u8 = null,
     messenger: Messenger = .cli,
     llm_provider: LlmProvider = .openai,
     llm_model: []const u8 = "gpt-4o-mini",
@@ -16,6 +17,9 @@ pub const Config = struct {
 
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
         if (self.log_file_path) |path| {
+            allocator.free(path);
+        }
+        if (self.role_path) |path| {
             allocator.free(path);
         }
         // Free model if it was allocated (not the default)
@@ -57,6 +61,13 @@ pub const Config = struct {
         if (value.object.get("log_file_path")) |log_path| {
             if (log_path.string.len > 0) {
                 config.log_file_path = try allocator.dupe(u8, log_path.string);
+            }
+        }
+
+        // Parse role file path
+        if (value.object.get("role_path")) |role_path| {
+            if (role_path.string.len > 0) {
+                config.role_path = try allocator.dupe(u8, role_path.string);
             }
         }
 

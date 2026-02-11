@@ -1,14 +1,29 @@
-const SYSTEM_PROMPT_BASE =
-    \\You are Aeon, a helpful AI assistant running on the user's device.
-    \\You have access to tools for reading files, writing files, and executing shell commands.
-    \\When a user asks you to perform an action that requires these tools, USE THEM.
-    \\Don't just describe what you would do — actually do it using the available tools.
-    \\Be concise and helpful in your responses.
-    \\
-    \\IMPORTANT: When asked to run commands, check files, or perform system operations,
-    \\you MUST use the exec, file_read, or file_write tools. Don't say "I would run..."
-    \\— actually run the command and report the results.
-;
+// Role is now loaded from config.role_path or uses constants.DEFAULT_ROLE
+// See roles/ folder for available role files
+
+/// Load role prompt from file or return default
+fn loadRole(allocator: std.mem.Allocator, role_path: ?[]const u8) ![]const u8 {
+    if (role_path) |path| {
+        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+            std.debug.print("Note: Could not open role file '{s}': {}. Using default role.\n", .{ path, err });
+            return constants.DEFAULT_ROLE;
+        };
+        defer file.close();
+
+        const stat = try file.stat();
+        if (stat.size > 100 * 1024) {
+            std.debug.print("Note: Role file too large (>100KB). Using default role.\n", .{});
+            return constants.DEFAULT_ROLE;
+        }
+
+        const content = try allocator.alloc(u8, stat.size);
+        errdefer allocator.free(content);
+
+        const bytes_read = try file.readAll(content);
+        return content[0..bytes_read];
+    }
+    return constants.DEFAULT_ROLE;
+}
 
 /// Global runtime pointer for the message handler callback
 var g_runtime: ?*runtime.AgentRuntime = null;
@@ -87,12 +102,21 @@ pub fn main() !void {
     };
     defer if (skills_content.len > 0) allocator.free(skills_content);
 
-    // Combine base prompt with skills
+    // Load role from file or use default
+    const role_content = loadRole(allocator, _config.role_path) catch |err| {
+        try _logger.err("Failed to load role", @src());
+        try utils.stderr_print("Error loading role: {}\n", .{err});
+        return;
+    };
+    const role_allocated = role_content.ptr != constants.DEFAULT_ROLE.ptr;
+    defer if (role_allocated) allocator.free(role_content);
+
+    // Combine role prompt with skills
     const full_system_prompt = if (skills_content.len > 0)
-        std.fmt.allocPrint(allocator, "{s}{s}", .{ SYSTEM_PROMPT_BASE, skills_content }) catch SYSTEM_PROMPT_BASE
+        std.fmt.allocPrint(allocator, "{s}{s}", .{ role_content, skills_content }) catch role_content
     else
-        SYSTEM_PROMPT_BASE;
-    defer if (skills_content.len > 0 and full_system_prompt.ptr != SYSTEM_PROMPT_BASE.ptr)
+        role_content;
+    defer if (skills_content.len > 0 and full_system_prompt.ptr != role_content.ptr)
         allocator.free(full_system_prompt);
 
     // Initialize agent runtime

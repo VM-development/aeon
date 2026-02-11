@@ -1,5 +1,6 @@
 {
     "log_file_path": "~/.aeon/logs/aeon.log",
+    "role_path": "~/.aeon/roles/Assistant.md",
     "messenger": "cli",
     "llm_provider": "openai",
     "llm_model": "gpt-4o-mini"
