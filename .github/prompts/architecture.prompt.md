@@ -135,6 +135,7 @@ pub fn executeAgent(runtime, message) !Response { ... }
 ### **Phase 2.5: Dialogs**
 - [x] Dialog provider interface
 - [x] CLI dialog provider
+- [ ] Implement proper work with Interactive cli commands
 
 ### **Phase 3: Server**
 - [ ] Session storage (file-based, SQLite, ability to add different storages)
@@ -159,6 +160,8 @@ pub fn executeAgent(runtime, message) !Response { ... }
 
 ### **Features**
 - [ ] Anthropic client implementation
+- [ ] Model selection (use default one and give ability to change it in config)
+- [ ] Start service without any config to ask user to fill it interactively
 
 ---
 

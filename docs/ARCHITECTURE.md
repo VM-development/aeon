@@ -25,10 +25,10 @@ graph TB
         MAIN[aeon.zig<br/>Main Entry Point]
     end
 
-    subgraph "Dialog Layer"
-        DP[DialogProvider<br/>Interface]
-        CLI[CliDialog<br/>Terminal UI]
-        TG[TelegramDialog<br/>🚧 Future]
+    subgraph "Messenger Layer"
+        DP[MessengerProvider<br/>Interface]
+        CLI[CliMessenger<br/>Terminal UI]
+        TG[TelegramMessenger<br/>🚧 Future]
     end
 
     subgraph "Agent Layer"
@@ -65,7 +65,7 @@ graph TB
     MAIN --> LOG
     MAIN --> ENV
 
-    %% Dialog layer
+    %% Messenger layer
     CLI --> DP
     TG -.-> DP
     DP --> RT
@@ -97,9 +97,9 @@ graph TB
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| **aeon.zig** | `src/aeon.zig` | Application entry point. Parses CLI args, loads config, initializes all components, starts the dialog loop. |
-| **DialogProvider** | `src/dialogs/provider.zig` | vtable interface for dialog backends. Defines `start()`, `send()`, `deinit()`. |
-| **CliDialog** | `src/dialogs/cli.zig` | Interactive terminal chat. Reads stdin, prints responses, handles `/commands`. |
+| **aeon.zig** | `src/aeon.zig` | Application entry point. Parses CLI args, loads config, initializes all components, starts the messenger loop. |
+| **MessengerProvider** | `src/messengers/provider.zig` | vtable interface for messenger backends. Defines `start()`, `send()`, `deinit()`. |
+| **CliMessenger** | `src/messengers/cli.zig` | Interactive terminal chat. Reads stdin, prints responses, handles `/commands`. |
 | **AgentRuntime** | `src/agent/runtime.zig` | Core message processing pipeline. Manages conversation history, orchestrates LLM calls, handles tool loop. |
 | **ToolRegistry** | `src/agent/tools.zig` | Stores and executes tools. Provides tool definitions to LLM requests. |
 | **StreamCollector** | `src/agent/runtime.zig` | Accumulates text deltas and tool calls during streaming. |
@@ -134,7 +134,7 @@ graph LR
         AG4[openai.zig]
     end
 
-    subgraph "Dialogs"
+    subgraph "Messengers"
         D1[provider.zig]
         D2[cli.zig]
     end
@@ -165,7 +165,7 @@ graph LR
     AG4 --> AG3
     AG4 --> U1
 
-    %% Dialog imports
+    %% Messenger imports
     D2 --> D1
     D2 --> U2
 ```
@@ -179,7 +179,7 @@ This sequence diagram shows the complete journey of a user message through the s
 ```mermaid
 sequenceDiagram
     participant User
-    participant CliDialog
+    participant CliMessenger
     participant aeon.zig
     participant AgentRuntime
     participant LlmClient
@@ -187,12 +187,12 @@ sequenceDiagram
     participant HttpClient
     participant OpenAI API
 
-    User->>CliDialog: Types "hello" + Enter
-    CliDialog->>CliDialog: readLine(stdin)
-    CliDialog->>CliDialog: Trim whitespace
-    CliDialog->>CliDialog: Print "assistant> "
+    User->>CliMessenger: Types "hello" + Enter
+    CliMessenger->>CliMessenger: readLine(stdin)
+    CliMessenger->>CliMessenger: Trim whitespace
+    CliMessenger->>CliMessenger: Print "assistant> "
     
-    CliDialog->>aeon.zig: handleMessage(InboundMessage)
+    CliMessenger->>aeon.zig: handleMessage(InboundMessage)
     aeon.zig->>AgentRuntime: processMessageStreaming("hello", callback)
     
     Note over AgentRuntime: Append user message to conversation
@@ -234,8 +234,8 @@ sequenceDiagram
     
     alt No tool calls
         AgentRuntime-->>aeon.zig: Return full response
-        aeon.zig-->>CliDialog: Return response
-        CliDialog->>User: Print newlines
+        aeon.zig-->>CliMessenger: Return response
+        CliMessenger->>User: Print newlines
     else Has tool calls
         Note over AgentRuntime: Execute tools, loop back
     end
@@ -459,8 +459,8 @@ stateDiagram-v2
 │ • Read OPENAI_API_KEY from environment                      │
 │ • Create OpenAIClient → LlmClient                           │
 │ • Create AgentRuntime with system prompt                    │
-│ • Create CliDialog → DialogProvider                         │
-│ • Start dialog loop (blocking)                              │
+│ • Create CliMessenger → MessengerProvider                         │
+│ • Start messenger loop (blocking)                              │
 ├─────────────────────────────────────────────────────────────┤
 │ Globals:                                                    │
 │ • g_runtime: ?*AgentRuntime — for handleMessage callback    │
@@ -473,7 +473,7 @@ stateDiagram-v2
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Dialog Layer
+### Messenger Layer
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -482,15 +482,15 @@ stateDiagram-v2
 │ Types:                                                      │
 │ • InboundMessage — dialog, from, text, timestamp            │
 │ • MessageHandler — fn(InboundMessage) ![]const u8           │
-│ • DialogProvider — vtable interface                         │
-│ • DialogProvider.VTable — start, send, deinit               │
+│ • MessengerProvider — vtable interface                         │
+│ • MessengerProvider.VTable — start, send, deinit               │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │ cli.zig                                                     │
 ├─────────────────────────────────────────────────────────────┤
 │ Types:                                                      │
-│ • CliDialog — allocator, running                            │
+│ • CliMessenger — allocator, running                            │
 ├─────────────────────────────────────────────────────────────┤
 │ Features:                                                   │
 │ • ASCII banner on startup                                   │
@@ -629,8 +629,8 @@ stateDiagram-v2
 ```mermaid
 graph TB
     subgraph "Dialog Providers"
-        CLI[CliDialog]
-        TG[TelegramDialog]
+        CLI[CliMessenger]
+        TG[TelegramMessenger]
         WA[WhatsAppDialog]
     end
 

@@ -300,7 +300,11 @@ fn execExecute(allocator: std.mem.Allocator, arguments: std.json.Value, ctx: Too
         };
     };
 
-    const success = result.Exited == 0;
+    // Safely check exit status - handle all termination types
+    const success = switch (result) {
+        .Exited => |code| code == 0,
+        .Signal, .Stopped, .Unknown => false,
+    };
 
     // Combine stdout + stderr
     if (stderr.len > 0 and stdout.len > 0) {

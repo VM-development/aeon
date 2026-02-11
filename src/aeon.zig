@@ -96,27 +96,27 @@ pub fn main() !void {
     defer llm_client.deinit();
 
     // Load skills from the skills directory
-    const skills_content = skills.loadSkills(allocator, skills.DEFAULT_SKILLS_PATH) catch {
+    const skills_result = skills.loadSkills(allocator, skills.DEFAULT_SKILLS_PATH) catch {
         try _logger.err("Failed to load skills", @src());
         return;
     };
-    defer if (skills_content.len > 0) allocator.free(skills_content);
+    defer skills_result.deinit(allocator);
 
     // Load role from file or use default
     const role_content = loadRole(allocator, _config.role_path) catch |err| {
         try _logger.err("Failed to load role", @src());
-        try utils.stderr_print("Error loading role: {}\n", .{err});
+        try utils.stderr_print("Error loading role: {}\\n", .{err});
         return;
     };
     const role_allocated = role_content.ptr != constants.DEFAULT_ROLE.ptr;
     defer if (role_allocated) allocator.free(role_content);
 
     // Combine role prompt with skills
-    const full_system_prompt = if (skills_content.len > 0)
-        std.fmt.allocPrint(allocator, "{s}{s}", .{ role_content, skills_content }) catch role_content
+    const full_system_prompt = if (skills_result.content.len > 0)
+        std.fmt.allocPrint(allocator, "{s}{s}", .{ role_content, skills_result.content }) catch role_content
     else
         role_content;
-    defer if (skills_content.len > 0 and full_system_prompt.ptr != role_content.ptr)
+    defer if (skills_result.content.len > 0 and full_system_prompt.ptr != role_content.ptr)
         allocator.free(full_system_prompt);
 
     // Initialize agent runtime

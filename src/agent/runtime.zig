@@ -37,9 +37,9 @@ pub const AgentRuntime = struct {
     }
 
     pub fn deinit(self: *AgentRuntime) void {
-        // Free owned message content
-        for (self.conversation.items) |msg| {
-            self.allocator.free(msg.content);
+        // Free owned message content using Message.deinit
+        for (self.conversation.items) |*msg| {
+            msg.deinit(self.allocator);
         }
         self.conversation.deinit(self.allocator);
         self.tool_registry.deinit();
@@ -176,8 +176,8 @@ pub const AgentRuntime = struct {
 
     /// Clear conversation history
     pub fn clearHistory(self: *AgentRuntime) void {
-        for (self.conversation.items) |msg| {
-            self.allocator.free(msg.content);
+        for (self.conversation.items) |*msg| {
+            msg.deinit(self.allocator);
         }
         self.conversation.clearRetainingCapacity();
     }
@@ -312,24 +312,23 @@ const StreamCollector = struct {
                 try self.tool_calls.append(self.allocator, pending);
             },
             .tool_call_delta => |delta| {
-                // Accumulate into the last pending tool call
-                if (self.tool_calls.items.len == 0) {
-                    // Start a new pending tool call
-                    var pending = PendingToolCall{
+                // Use index to find/create the right pending tool call
+                const target_index = delta.index orelse self.tool_calls.items.len;
+
+                // Ensure we have enough slots
+                while (self.tool_calls.items.len <= target_index) {
+                    const pending = PendingToolCall{
                         .id = .{},
                         .name = .{},
                         .arguments = .{},
                     };
-                    if (delta.id) |id| try pending.id.appendSlice(self.allocator, id);
-                    if (delta.name) |name| try pending.name.appendSlice(self.allocator, name);
-                    if (delta.arguments) |args| try pending.arguments.appendSlice(self.allocator, args);
                     try self.tool_calls.append(self.allocator, pending);
-                } else {
-                    var last = &self.tool_calls.items[self.tool_calls.items.len - 1];
-                    if (delta.id) |id| try last.id.appendSlice(self.allocator, id);
-                    if (delta.name) |name| try last.name.appendSlice(self.allocator, name);
-                    if (delta.arguments) |args| try last.arguments.appendSlice(self.allocator, args);
                 }
+
+                var target = &self.tool_calls.items[target_index];
+                if (delta.id) |id| try target.id.appendSlice(self.allocator, id);
+                if (delta.name) |name| try target.name.appendSlice(self.allocator, name);
+                if (delta.arguments) |args| try target.arguments.appendSlice(self.allocator, args);
             },
             .done => {},
             .@"error" => |err| {

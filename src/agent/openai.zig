@@ -266,12 +266,22 @@ pub const OpenAIClient = struct {
         var tools_list: std.ArrayList(OpenAITool) = .{};
         defer tools_list.deinit(self.allocator);
 
+        // Storage for required field arrays to keep them alive during serialization
+        var required_storage: std.ArrayList([]const []const u8) = .{};
+        defer {
+            for (required_storage.items) |req| {
+                self.allocator.free(req);
+            }
+            required_storage.deinit(self.allocator);
+        }
+
         if (request.tools) |tools| {
             for (tools) |tool| {
-                // Build properties JSON object
+                // Build properties JSON object and collect required fields
                 // NOTE: Do NOT defer deinit here — the ObjectMap data is referenced
                 // by tools_list entries and must survive until after serialization.
                 var props_map = std.json.ObjectMap.init(self.allocator);
+                var required_list: std.ArrayList([]const u8) = .{};
 
                 var iter = tool.parameters.iterator();
                 while (iter.next()) |entry| {
@@ -284,7 +294,15 @@ pub const OpenAIClient = struct {
                     }
 
                     try props_map.put(entry.key_ptr.*, .{ .object = prop_obj });
+
+                    // Track required fields
+                    if (entry.value_ptr.required) {
+                        try required_list.append(self.allocator, entry.key_ptr.*);
+                    }
                 }
+
+                const required_slice = try required_list.toOwnedSlice(self.allocator);
+                try required_storage.append(self.allocator, required_slice);
 
                 try tools_list.append(self.allocator, .{
                     .function = .{
@@ -292,6 +310,7 @@ pub const OpenAIClient = struct {
                         .description = tool.description,
                         .parameters = .{
                             .properties = .{ .object = props_map },
+                            .required = required_slice,
                         },
                     },
                 });
@@ -358,9 +377,50 @@ pub const OpenAIClient = struct {
 
         const finish_reason = choice.get("finish_reason").?.string;
 
+        // Parse tool_calls if present
+        var tool_calls: ?[]const llm.ToolCall = null;
+        if (message.get("tool_calls")) |tc_value| {
+            if (tc_value == .array) {
+                var tc_list: std.ArrayList(llm.ToolCall) = .{};
+                for (tc_value.array.items) |tc_item| {
+                    if (tc_item != .object) continue;
+                    const tc_obj = tc_item.object;
+
+                    const id = if (tc_obj.get("id")) |id_val|
+                        if (id_val == .string) id_val.string else continue
+                    else
+                        continue;
+
+                    const func = tc_obj.get("function") orelse continue;
+                    if (func != .object) continue;
+
+                    const name = if (func.object.get("name")) |n|
+                        if (n == .string) n.string else continue
+                    else
+                        continue;
+
+                    const arguments = if (func.object.get("arguments")) |a|
+                        if (a == .string) a.string else "{}"
+                    else
+                        "{}";
+
+                    try tc_list.append(self.allocator, .{
+                        .id = try self.allocator.dupe(u8, id),
+                        .name = try self.allocator.dupe(u8, name),
+                        .arguments = try self.allocator.dupe(u8, arguments),
+                    });
+                }
+                if (tc_list.items.len > 0) {
+                    tool_calls = try tc_list.toOwnedSlice(self.allocator);
+                } else {
+                    tc_list.deinit(self.allocator);
+                }
+            }
+        }
+
         return llm.CompletionResponse{
             .content = content,
-            .tool_calls = null, // TODO: Parse tool calls
+            .tool_calls = tool_calls,
             .finish_reason = try self.allocator.dupe(u8, finish_reason),
         };
     }
@@ -417,13 +477,19 @@ fn handleSseLine(line: []const u8, ctx: *anyopaque) anyerror!void {
         }
     }
 
-    // Handle tool_calls in delta
+    // Handle tool_calls in delta - OpenAI sends index to identify which tool call
     if (delta.object.get("tool_calls")) |tool_calls_value| {
         if (tool_calls_value == .array) {
             for (tool_calls_value.array.items) |tool_call_item| {
                 if (tool_call_item != .object) continue;
 
                 const tc_obj = tool_call_item.object;
+
+                // Extract index to identify which tool call this delta belongs to
+                const index: ?usize = if (tc_obj.get("index")) |idx_val|
+                    if (idx_val == .integer) @as(usize, @intCast(idx_val.integer)) else null
+                else
+                    null;
 
                 // Extract id (only in first chunk)
                 const id: ?[]const u8 = if (tc_obj.get("id")) |id_val|
@@ -448,9 +514,10 @@ fn handleSseLine(line: []const u8, ctx: *anyopaque) anyerror!void {
                     }
                 }
 
-                // Emit tool_call_delta event
+                // Emit tool_call_delta event with index
                 try context.callback(.{
                     .tool_call_delta = .{
+                        .index = index,
                         .id = id,
                         .name = name,
                         .arguments = arguments,

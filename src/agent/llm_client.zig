@@ -35,6 +35,27 @@ pub const Message = struct {
             .content = content,
         };
     }
+
+    /// Free all owned allocations. Pass the same allocator used for allocations.
+    pub fn deinit(self: *const Message, allocator: std.mem.Allocator) void {
+        if (self.content.len > 0) {
+            allocator.free(self.content);
+        }
+        if (self.name) |name| {
+            allocator.free(name);
+        }
+        if (self.tool_call_id) |id| {
+            allocator.free(id);
+        }
+        if (self.tool_calls) |tcs| {
+            for (tcs) |tc| {
+                allocator.free(tc.id);
+                allocator.free(tc.name);
+                allocator.free(tc.arguments);
+            }
+            allocator.free(tcs);
+        }
+    }
 };
 
 /// Tool parameter definition
@@ -73,6 +94,7 @@ pub const ToolCall = struct {
 pub const StreamEvent = union(enum) {
     text_delta: []const u8,
     tool_call_delta: struct {
+        index: ?usize = null, // Tool call index for multi-tool-call handling
         id: ?[]const u8,
         name: ?[]const u8,
         arguments: ?[]const u8,

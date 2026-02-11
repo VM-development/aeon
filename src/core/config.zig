@@ -29,7 +29,11 @@ pub const Config = struct {
     }
 
     pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !Config {
-        const file = try std.fs.cwd().openFile(path, .{});
+        // Expand ~ in config path
+        const expanded_path = try utils.expandPath(allocator, path);
+        defer allocator.free(expanded_path);
+
+        const file = try std.fs.cwd().openFile(expanded_path, .{});
         defer file.close();
 
         const file_size = try file.getEndPos();
@@ -55,46 +59,65 @@ pub const Config = struct {
         return parseConfigFromJson(allocator, parsed.value);
     }
 
+    /// Helper to safely get a string from JSON value
+    fn getJsonString(value: std.json.Value) ?[]const u8 {
+        return if (value == .string) value.string else null;
+    }
+
     fn parseConfigFromJson(allocator: std.mem.Allocator, value: std.json.Value) !Config {
+        // Validate root is an object
+        if (value != .object) {
+            return error.InvalidConfig;
+        }
+
         var config = Config{};
 
-        if (value.object.get("log_file_path")) |log_path| {
-            if (log_path.string.len > 0) {
-                config.log_file_path = try allocator.dupe(u8, log_path.string);
+        // Parse log_file_path with ~ expansion
+        if (value.object.get("log_file_path")) |log_path_val| {
+            if (getJsonString(log_path_val)) |log_path| {
+                if (log_path.len > 0) {
+                    config.log_file_path = try utils.expandPath(allocator, log_path);
+                }
             }
         }
 
-        // Parse role file path
-        if (value.object.get("role_path")) |role_path| {
-            if (role_path.string.len > 0) {
-                config.role_path = try allocator.dupe(u8, role_path.string);
+        // Parse role_path with ~ expansion
+        if (value.object.get("role_path")) |role_path_val| {
+            if (getJsonString(role_path_val)) |role_path| {
+                if (role_path.len > 0) {
+                    config.role_path = try utils.expandPath(allocator, role_path);
+                }
             }
         }
 
         // Parse messenger mode: "cli" or "telegram"
-        if (value.object.get("messenger")) |mode| {
-            const mode_str = mode.string;
-            if (std.mem.eql(u8, mode_str, "telegram")) {
-                config.messenger = .telegram;
-            } else {
-                config.messenger = .cli;
+        if (value.object.get("messenger")) |mode_val| {
+            if (getJsonString(mode_val)) |mode_str| {
+                if (std.mem.eql(u8, mode_str, "telegram")) {
+                    config.messenger = .telegram;
+                } else {
+                    config.messenger = .cli;
+                }
             }
         }
 
         // Parse LLM provider: "openai" or "anthropic"
-        if (value.object.get("llm_provider")) |provider| {
-            const provider_str = provider.string;
-            if (std.mem.eql(u8, provider_str, "anthropic")) {
-                config.llm_provider = .anthropic;
-            } else if (std.mem.eql(u8, provider_str, "openai")) {
-                config.llm_provider = .openai;
+        if (value.object.get("llm_provider")) |provider_val| {
+            if (getJsonString(provider_val)) |provider_str| {
+                if (std.mem.eql(u8, provider_str, "anthropic")) {
+                    config.llm_provider = .anthropic;
+                } else if (std.mem.eql(u8, provider_str, "openai")) {
+                    config.llm_provider = .openai;
+                }
             }
         }
 
         // Parse LLM model name
-        if (value.object.get("llm_model")) |model| {
-            if (model.string.len > 0) {
-                config.llm_model = try allocator.dupe(u8, model.string);
+        if (value.object.get("llm_model")) |model_val| {
+            if (getJsonString(model_val)) |model| {
+                if (model.len > 0) {
+                    config.llm_model = try allocator.dupe(u8, model);
+                }
             }
         }
 
@@ -103,3 +126,4 @@ pub const Config = struct {
 };
 
 const std = @import("std");
+const utils = @import("../utils/utils.zig");

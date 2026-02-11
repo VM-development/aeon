@@ -82,7 +82,7 @@ pub const CliMessenger = struct {
 
             // Handle commands
             if (trimmed[0] == '/') {
-                const should_continue = try self.handleCommand(trimmed);
+                const should_continue = try self.handleCommand(trimmed, handler);
                 if (!should_continue) break;
                 continue;
             }
@@ -101,17 +101,15 @@ pub const CliMessenger = struct {
             };
             defer self.allocator.free(response);
 
-            // Response is already printed via streaming callback,
-            // but if non-streaming, print it here
-            if (response.len > 0) {
-                try utils.stdout_print("{s}", .{response});
-            }
+            // Streaming mode already prints deltas in real-time,
+            // so we only print newlines here to end the response.
+            // The response content was already streamed to stdout.
             try utils.stdout_print("\n\n", .{});
         }
     }
 
     /// Handle slash commands. Returns false if the messenger should stop.
-    fn handleCommand(self: *Self, command: []const u8) !bool {
+    fn handleCommand(self: *Self, command: []const u8, handler: provider.MessageHandler) !bool {
         if (std.mem.eql(u8, command, "/quit") or std.mem.eql(u8, command, "/exit")) {
             try utils.stdout_print("Goodbye!\n", .{});
             self.running = false;
@@ -127,8 +125,13 @@ pub const CliMessenger = struct {
                 \\
             , .{});
         } else if (std.mem.eql(u8, command, "/clear")) {
-            // The clear is handled by the message handler when it receives
-            // the special /clear command
+            // Pass /clear to handler so runtime actually clears history
+            _ = handler(.{
+                .messenger = "cli",
+                .from = "local",
+                .text = "/clear",
+                .timestamp = std.time.timestamp(),
+            }) catch {};
             try utils.stdout_print("Conversation history cleared.\n\n", .{});
         } else {
             try utils.stdout_print("Unknown command: {s}. Type /help for available commands.\n\n", .{command});
