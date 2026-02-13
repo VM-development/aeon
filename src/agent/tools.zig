@@ -146,9 +146,11 @@ pub const ToolRegistry = struct {
 
         try self.register(
             "exec",
-            "Execute a shell command and return its output",
+            "Execute a shell command and return its output. For commands that require password/input, provide it via the stdin parameter. Commands that require interaction will fail if no stdin is provided.",
             &.{
                 .{ .name = "command", .type = "string", .description = "Shell command to execute", .required = true },
+                .{ .name = "stdin", .type = "string", .description = "Optional input to provide to the command's stdin (e.g., password for sudo -S)", .required = false },
+                .{ .name = "timeout_ms", .type = "integer", .description = "Optional timeout in milliseconds. Default is 60000 (60 seconds). Use 0 for no timeout.", .required = false },
             },
             execExecute,
         );
@@ -253,11 +255,20 @@ fn execExecute(allocator: std.mem.Allocator, arguments: std.json.Value, ctx: Too
         };
     };
 
+    // Get optional stdin input
+    const stdin_input = getStringArg(arguments, "stdin");
+
+    // Get optional timeout (default 60 seconds)
+    const timeout_ms = getIntArg(arguments, "timeout_ms") orelse 60000;
+
     const argv = [_][]const u8{ "/bin/sh", "-c", command };
 
     var child = std.process.Child.init(&argv, allocator);
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
+    // Use Pipe for stdin so we can control it - if no input provided, closing immediately
+    // causes interactive commands to get EOF and fail fast instead of hanging
+    child.stdin_behavior = .Pipe;
 
     child.spawn() catch |err| {
         return ToolResult{
@@ -266,6 +277,49 @@ fn execExecute(allocator: std.mem.Allocator, arguments: std.json.Value, ctx: Too
             .error_msg = allocator.dupe(u8, "Spawn error") catch null,
         };
     };
+
+    // Write stdin input if provided, then close stdin
+    if (child.stdin) |stdin| {
+        if (stdin_input) |input| {
+            stdin.writeAll(input) catch {};
+            // Add newline if not present (for password prompts)
+            if (input.len == 0 or input[input.len - 1] != '\n') {
+                stdin.writeAll("\n") catch {};
+            }
+        }
+        stdin.close();
+        child.stdin = null;
+    }
+
+    // For timeout, we'll use a simple approach: spawn a thread that kills the process
+    var killed_by_timeout = false;
+    var timeout_thread: ?std.Thread = null;
+
+    if (timeout_ms > 0) {
+        const TimeoutContext = struct {
+            child_id: std.process.Child.Id,
+            timeout_ns: u64,
+            killed: *bool,
+        };
+
+        const timeout_ctx = allocator.create(TimeoutContext) catch null;
+        if (timeout_ctx) |tc| {
+            tc.* = .{
+                .child_id = child.id,
+                .timeout_ns = @as(u64, @intCast(timeout_ms)) * std.time.ns_per_ms,
+                .killed = &killed_by_timeout,
+            };
+
+            timeout_thread = std.Thread.spawn(.{}, struct {
+                fn run(context: *TimeoutContext) void {
+                    std.Thread.sleep(context.timeout_ns);
+                    // Try to kill the process if still running
+                    std.posix.kill(context.child_id, std.posix.SIG.KILL) catch {};
+                    context.killed.* = true;
+                }
+            }.run, .{tc}) catch null;
+        }
+    }
 
     // Read stdout
     var stdout_buf: [4096]u8 = undefined;
@@ -291,6 +345,10 @@ fn execExecute(allocator: std.mem.Allocator, arguments: std.json.Value, ctx: Too
     };
 
     const result = child.wait() catch |err| {
+        // Cancel timeout thread if it exists
+        if (timeout_thread) |t| {
+            t.detach();
+        }
         allocator.free(stdout);
         allocator.free(stderr);
         return ToolResult{
@@ -299,6 +357,22 @@ fn execExecute(allocator: std.mem.Allocator, arguments: std.json.Value, ctx: Too
             .error_msg = allocator.dupe(u8, "Wait error") catch null,
         };
     };
+
+    // Detach timeout thread since process completed
+    if (timeout_thread) |t| {
+        t.detach();
+    }
+
+    // Check if killed by timeout
+    if (killed_by_timeout) {
+        allocator.free(stdout);
+        allocator.free(stderr);
+        return ToolResult{
+            .success = false,
+            .output = std.fmt.allocPrint(allocator, "Command timed out after {d}ms. If the command requires interactive input (password, confirmation), provide it via the 'stdin' parameter.", .{timeout_ms}) catch return errorResult(),
+            .error_msg = allocator.dupe(u8, "Timeout") catch null,
+        };
+    }
 
     // Safely check exit status - handle all termination types
     const success = switch (result) {
@@ -337,6 +411,13 @@ fn getStringArg(args: std.json.Value, key: []const u8) ?[]const u8 {
     const val = args.object.get(key) orelse return null;
     if (val != .string) return null;
     return val.string;
+}
+
+fn getIntArg(args: std.json.Value, key: []const u8) ?i64 {
+    if (args != .object) return null;
+    const val = args.object.get(key) orelse return null;
+    if (val != .integer) return null;
+    return val.integer;
 }
 
 fn errorResult() ToolResult {
